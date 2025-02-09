@@ -684,11 +684,11 @@ def parse_sentence(sentence, verbose=False):
     global parser
     if verbose:
         print("Sentence:", sentence)
-    parser.stdin.write(sentence + "\n")
+    parser.stdin.write((sentence + "\n").encode('utf-8'))
     parser.stdin.flush()
     output_parser = parser.stdout.readline()
     out = output_parser
-    while "####" not in out:
+    while "###" not in out.decode("utf-8"):  # Convert bytes to string before comparison
         out = parser.stdout.readline()
         output_parser += out
     return output_parser
@@ -708,7 +708,7 @@ def get_elements(dependency):
 
 
 def separate_parse(parse_output):
-    parts = parse_output.split("\n\n")
+    parts = parse_output.decode("utf-8").split("\n\n")
     if len(parts) > 2:
         part1 = parts[0].split("\n")
         pos_tags = part1[1]
@@ -789,133 +789,76 @@ def print_usage():
     print("  --dundee             use the mode for Dundee data")
     print("  --verbose            print additional output to screen")
 
-
-if __name__ == "__main__":
-    verbose = False
-    mode = None
+def process_arguments(input_filename, output_filename, rest_args):
+    """Process command-line arguments."""
+    # if len(sys.argv) == 1:
+    #     sys.argv = ["integration_cost.py", "paragraphs_mini.txt", "out_sentfeats.csv", "--sentfeats"]
+    
+    # if len(sys.argv) < 2 or "-h" in sys.argv:
+    #     print_usage()
+    #     exit()
+    # # Process arguments
+    # # file with the sentences
+    # input_filename = sys.argv[1]
+    # # final output filename
+    # output_filename = sys.argv[2]
+    # rest_args = sys.argv[3:] if len(sys.argv) > 3 else []
+    
+    global f_adv_trace_off
+    global mode
+    global verbose
+    global align_filename
+    
+    mode = "stories"
     align_filename = None
-    alignment = None
     f_adv_trace_off = False
-    auxiliary_line = []
-    no_words = 0
+    verbose = False
+    
+    if "--with-alignments" in rest_args:
+        align_filename = sys.argv[3]
+    if "--advTraceOff" in rest_args:
+        print("Adverbial traces off!")
+        f_adv_trace_off = True
+    if "--stories" in rest_args:
+        print("Using Stories mode...")
+        mode = "stories"
+    if "--sentfeats" in rest_args:
+        print("Using sentence features mode...")
+        mode = "sentence_features"
+    if "--dundee" in rest_args:
+        print("Using Dundee mode...\nNB: This has not been tested since 2014.")
+    if "--verbose" in rest_args:
+        print("Verbose mode enabled.")
+        verbose = True
+    
+    return input_filename, output_filename, mode, align_filename, f_adv_trace_off, verbose
 
-    if len(sys.argv) < 2 or "-h" in sys.argv:
+def process_dundee_mode(input_filename, output_filename, align_filename):
+    """Process Dundee mode execution."""
+    if not align_filename:
         print_usage()
         exit()
-    # Process arguments
-    # file with the sentences
-    input_filename = sys.argv[1]
-    # final output filename
-    output_filename = sys.argv[2]
-    if len(sys.argv) > 3:
-        rest_args = sys.argv[3:]
-        if "--with-alignments" in rest_args:
-            # "the file to which it has to be aligned the output"
-            align_filename = sys.argv[3]
-        if "--advTraceOff" in sys.argv[3:]:
-            print("adverbial traces off!")
-            f_adv_trace_off = True
-        if "--stories" in sys.argv[3:]:
-            print("Using Stories mode...")
-            mode = "stories"
-        if "--sentfeats" in sys.argv[3:]:
-            print("Using sentence features mode...")
-            mode = "sentence_features"
-        if "--dundee" in sys.argv[3:]:
-            print("Using Dundee mode...")
-            print("NB: This has not been tested since 2014. Refactoring has happened since then.")
-        if "--verbose" in sys.argv[3:]:
-            print("Printing additional output to stdout in verbose mode.")
-            verbose = True
-    if not mode:
-        mode = "stories"
-
-    # Check args to see if we're using adverbial traces or not
-    f_adv_trace_off = False
-
-    # Open our input and output files
+    
     source = open(input_filename, 'r')
     output = open(output_filename, 'w')
-
-    if mode == "dundee_fixed":
-        # We require an alignment file for Dundee, so fail and print usage if this is not provided
-        if align_filename:
-            alignment = open(align_filename, 'r')
-        else:
-            # Close open files
-            source.close()
-            output.close()
-            # Print usage and quit
-            print_usage()
-            exit()
-
-        # Intermediate file; penultimate step, used to produce final output
-        intermediate_file = open(INTERMEDIATE_FILENAME, 'w')
-
-        direct_object_rel_flag = False
-
-        load_stanford_parser()
-
-        lines = source.readlines()
-        dundee_line_counter = 0
-        line, length, numWords = get_sentence_to_parse_dundee(lines)
-
-        line_counter = 0
-
-        intermediate_file.write("Word\tDiscRef\tIntegrationCost\t\n")
-        while line:
-            print(line)
-            # print(file_lines)
-            if length > 1:
-                if line_counter > 149:  # Reload Stanford Parser every 150 lines, to avoid broken pipes
-                    parser.kill()
-                    load_stanford_parser()
-                    line_counter = 0
-                    print("STANFORD PARSER RELOADED")
-                parserOutput = parse_sentence(line, verbose)
-                posTags, dependencies = separate_parse(parserOutput)
-                parseStructure = ParseStructure(posTags, dependencies, verbose)
-                parseStructure.find_traces()
-                parseStructure.solve_coordination()
-                parseStructure.set_referents()
-                parseStructure.calculate_integration_cost()
-                parseStructure.print_parse_structure_dundee(intermediate_file, line, alignment)
-                line_counter += 1
-            elif numWords < 2:
-                intermediate_file.write(line + "\t0\t0\n")
-            else:
-                intermediate_file.write("PARSER OUTPUT LESS THAN 2\n\n")
-            # line,length,numWords,fileLines=get_sentence_to_parse_dundee_beta(source)
-            line, length, numWords = get_sentence_to_parse_dundee(lines)
-
-        parser.kill()
-        source.close()
-        intermediate_file.close()
-
-        # PART MODIFIED FOR DUNDEE
-        source = open(align_filename)
-        intermediate_file = open(INTERMEDIATE_FILENAME)
-        mix_files_dundee(source, intermediate_file, output)
-        source.close()
-        intermediate_file.close()
-        output.close()
-    elif mode in ["sentence_features", "stories"]:
-        if mode == "sentence_features":
-            output.write("total_integration_cost avg_integration_cost max_integration_cost\n")
-        lines = source.read().split('\n')
-
-        load_stanford_parser()
-
-        line = get_sentence_to_parse_stories()
-
-        line_counter = 0
-        while line:
-            # Reload Stanford Parser every 150 lines, to avoid broken pipes.
-            if line_counter == 150:
+    alignment = open(align_filename, 'r')
+    intermediate_file = open(INTERMEDIATE_FILENAME, 'w')
+    
+    load_stanford_parser()
+    
+    lines = source.readlines()
+    line, length, num_words = get_sentence_to_parse_dundee(lines)
+    
+    line_counter = 0
+    intermediate_file.write("Word\tDiscRef\tIntegrationCost\n")
+    while line:
+        if length > 1:
+            if line_counter > 149:
                 parser.kill()
                 load_stanford_parser()
                 line_counter = 0
                 print("STANFORD PARSER RELOADED")
+            
             parser_output = parse_sentence(line, verbose)
             pos_tags, dependencies = separate_parse(parser_output)
             parse_structure = ParseStructure(pos_tags, dependencies, verbose)
@@ -923,18 +866,85 @@ if __name__ == "__main__":
             parse_structure.solve_coordination()
             parse_structure.set_referents()
             parse_structure.calculate_integration_cost()
-
-            if mode == "sentence_features":
-                parse_structure.save_sentence_integration_cost_features(output)
-            elif mode == "stories":
-                parse_structure.print_parse_structure(output)
-            line = get_sentence_to_parse_stories()
+            parse_structure.print_parse_structure_dundee(intermediate_file, line, alignment)
             line_counter += 1
+        else:
+            intermediate_file.write(f"{line}\t0\t0\n")
+        line, length, num_words = get_sentence_to_parse_dundee(lines)
+    
+    parser.kill()
+    source.close()
+    intermediate_file.close()
+    
+    source = open(align_filename)
+    intermediate_file = open(INTERMEDIATE_FILENAME)
+    mix_files_dundee(source, intermediate_file, output)
+    source.close()
+    intermediate_file.close()
+    output.close()
 
-        output.close()
+def process_sentence_features_or_stories(input_filename, output_filename, mode, verbose):
+    """Process Sentence Features or Stories mode execution."""
+    source = open(input_filename, 'r')
+    output = open(output_filename, 'w')
+    
+    if mode == "sentence_features":
+        output.write("total_integration_cost avg_integration_cost max_integration_cost\n")
+    
+    global lines
+    lines = source.read().split('\n')
+    load_stanford_parser()
+    
+    line = get_sentence_to_parse_stories()
+    line_counter = 0
+    while line:
+        print(line_counter)
+        if line_counter == 150:
+            parser.kill()
+            load_stanford_parser()
+            line_counter = 0
+            print("STANFORD PARSER RELOADED")
+        
+        parser_output = parse_sentence(line, verbose)
+        pos_tags, dependencies = separate_parse(parser_output)
+        parse_structure = ParseStructure(pos_tags, dependencies, verbose)
+        parse_structure.find_traces()
+        parse_structure.solve_coordination()
+        parse_structure.set_referents()
+        parse_structure.calculate_integration_cost()
+        
+        if mode == "sentence_features":
+            parse_structure.save_sentence_integration_cost_features(output)
+        elif mode == "stories":
+            parse_structure.print_parse_structure(output)
+        
+        line = get_sentence_to_parse_stories()
+        line_counter += 1
+    
+    output.close()
+
+def run(input_filename, output_filename, rest_args):
+    """Main function to handle execution based on mode."""
+    input_filename, output_filename, mode, align_filename, f_adv_trace_off, verbose = process_arguments(input_filename, output_filename, rest_args)
+    
+    if mode == "dundee_fixed":
+        process_dundee_mode(input_filename, output_filename, align_filename)
+    elif mode in ["sentence_features", "stories"]:
+        process_sentence_features_or_stories(input_filename, output_filename, mode, verbose)
     else:
-        # Close open files
-        source.close()
-        output.close()
         print_usage()
         exit()
+
+if __name__ == "__main__":
+    import os
+    data_folder = 'data/'
+    results_folder = 'results/'
+    rest_args = "--sentfeats"
+    
+    # for file in ['sentences_df_cleaned.csv']:
+    #     input_filename = data_folder + file
+    #     output_filename = results_folder + file
+    #     print(f"Processing {file}...")
+    #     run(input_filename, output_filename, rest_args)
+            
+    run("sample_text.txt", "sample_result.csv", rest_args)
