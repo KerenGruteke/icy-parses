@@ -3,6 +3,7 @@ README for icy-parses (formerly, icToolDist)
 
 This package provides support for extracting integration cost from the
 output of the Stanford Dependency Parser.
+This is my fork of @dmhowcroft's repo.
 
 Usage
 -----
